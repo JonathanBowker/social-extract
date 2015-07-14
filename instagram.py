@@ -27,8 +27,12 @@ pass_config = click.make_pass_decorator(Config, ensure=True)
 
 
 @click.group()
-@click.option('--client-id', envvar='INSTAGRAM_CLIENT_ID', help='Your client ID (required, or export INSTAGRAM_CLIENT_ID)')
-@click.option('--client-secret', envvar='INSTAGRAM_CLIENT_SECRET', help='Your client secret (required, or export INSTAGRAM_CLIENT_ID)')
+@click.option('--client-id',
+              envvar='INSTAGRAM_CLIENT_ID',
+              help='Your client ID (required, or export INSTAGRAM_CLIENT_ID)')
+@click.option('--client-secret',
+              envvar='INSTAGRAM_CLIENT_SECRET',
+              help='Your client secret (required, or export INSTAGRAM_CLIENT_SECRET)')
 @pass_config
 def cli(config, client_id, client_secret):
     if client_id is None:
