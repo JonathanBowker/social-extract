@@ -37,6 +37,25 @@ def cli(config, client_id, client_secret):
     config.client_secret = client_secret
 
 
+@cli.command('id')
+@click.argument('username')
+@pass_config
+def id_(config, username):
+    ''' Get an instagram user's ID. '''
+
+    endpoint = '/users/search'
+    response = _get_instagram(config, endpoint, {'q': username})
+
+    if response.status_code != 200:
+        raise click.ClickException(
+            'Unable to perform search: {} {}'
+            .format(response.status_code, response.payload['meta']['error_message'])
+        )
+
+    for user in response.payload['data']:
+        click.echo('{:>20} {}'.format(user['username'], user['id']))
+
+
 @cli.command()
 @click.argument('user_id')
 @pass_config
@@ -110,16 +129,16 @@ def _get_instagram(config, endpoint, params={}):
     response = requests.get(url, params=params)
 
     while response.status_code == 429:
-        err = 'Error: over the rate limit! (Will try again in 1 minute.)'
+        err = 'Error: over the rate limit! (Will try again in 5 minutes.)'
         click.secho(err, fg='red')
-        time.sleep(60)
+        time.sleep(300)
         click.echo('Requesting (again): {}'.format(url))
         response = requests.get(url, params=params)
 
     response.payload = response.json()
     response.rate_limit = int(response.headers['X-Ratelimit-Remaining'])
 
-    if response.rate_limit < 5:
+    if response.rate_limit <= 5:
         warn = 'Warning: rate limit is low ({})!'.format(response.rate_limit)
         click.secho(warn, fg='yellow')
 
@@ -173,8 +192,9 @@ def _get_graph(config, graph, user_map, user_ids, depth, max_follow):
             if followed_id not in graph:
                 next_hop.add(followed_id)
 
-    if depth > 1:
-        click.echo('Finished depth={}, moving on to depth={}'.format(depth, depth-1))
+    if depth > 0:
+        msg = 'Finished depth={}, moving on to depth={}'.format(depth, depth-1)
+        click.secho(msg, fg='green')
         _get_graph(config, graph, user_map, list(next_hop), depth-1, max_follow)
 
 
