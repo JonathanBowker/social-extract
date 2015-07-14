@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
-import click
 from collections import defaultdict
 from hashlib import sha256
 import hmac
 import json
 import requests
 import time
+
+import click
 
 
 API_URL = 'https://api.instagram.com/v1'
