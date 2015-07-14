@@ -1,3 +1,5 @@
 credentials
+pyvenv
+*_sess
 *.tsv
 

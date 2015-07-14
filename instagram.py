@@ -4,10 +4,10 @@ from collections import defaultdict
 from hashlib import sha256
 import hmac
 import json
-import requests
 import time
 
 import click
+import requests
 
 
 API_URL = 'https://api.instagram.com/v1'
@@ -196,7 +196,7 @@ def _get_graph(config, graph, user_map, user_ids, depth, max_follow):
             if followed_id not in graph:
                 next_hop.add(followed_id)
 
-    if depth > 0:
+    if depth > 1:
         msg = 'Finished depth={}, moving on to depth={}'.format(depth, depth-1)
         click.secho(msg, fg='green')
         _get_graph(config, graph, user_map, list(next_hop), depth-1, max_follow)
