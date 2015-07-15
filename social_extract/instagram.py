@@ -4,10 +4,14 @@ from collections import defaultdict
 from hashlib import sha256
 import hmac
 import json
+import os
 import time
 
 import click
 import requests
+
+sys.path.append(os.path.dirname(__file__))
+from util import write_graph, write_users
 
 
 API_URL = 'https://api.instagram.com/v1'
@@ -104,13 +108,12 @@ def graph(config, user_id, depth, max_follow, username_file, graph_file):
     try:
         _get_graph(config, graph, user_map, [user_id], depth, max_follow)
     except KeyboardInterrupt:
-        click.secho('Received signal: quitting', fg=red)
-        _write_users(users, username_file)
-        _write_graph(graph, graph_file)
-        raise
+        click.secho('Received interrupt... saving results', fg='yellow')
 
-    _write_users(user_map, username_file)
-    _write_graph(graph, graph_file)
+    write_users(user_map, username_file)
+    write_graph(graph, graph_file)
+
+    click.secho('Finished: {} nodes'.format(len(user_map)))
 
 
 def _get_instagram(config, endpoint, params={}):
@@ -200,21 +203,6 @@ def _get_graph(config, graph, user_map, user_ids, depth, max_follow):
         msg = 'Finished depth={}, moving on to depth={}'.format(depth, depth-1)
         click.secho(msg, fg='green')
         _get_graph(config, graph, user_map, list(next_hop), depth-1, max_follow)
-
-
-def _write_graph(graph, file_):
-    ''' Write graph data to specified file. '''
-
-    for user, follows in graph.items():
-        for follow in follows:
-            file_.write('{}\t{}\n'.format(user, follow))
-
-
-def _write_users(users, file_):
-    ''' Write user ID and username to specified file. '''
-
-    for user_id, username in users.items():
-        file_.write('{}\t{}\n'.format(user_id, username))
 
 
 if __name__ == '__main__':
