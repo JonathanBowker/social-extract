@@ -43,7 +43,7 @@ pass_config = click.make_pass_decorator(Config, ensure=True)
                    'TWITTER_PASSWORD)')
 @click.option('--url', help='URL for Twitter (default: {})'.format(TWITTER_URL))
 @click.option('--session',
-              type=click.File('rb+'),
+              type=click.File('rb+', lazy=False),
               help='Path to save/load session file to/from (if not specified, ' \
                    'the session will not be loaded/saved)')
 @pass_config
@@ -63,10 +63,12 @@ def cli(config, user, password, url, session):
               help='Maximum number of hops from the seed user.')
 @click.option('--max-follow',
               default=100,
-              help='Maximum number of followers or followees to traverse per user.')
+              help='Maximum number of followers or followees to traverse per ' \
+                   'user. (May exceed this size a bit because it breaks on ' \
+                   'page boundaries.)')
 @click.argument('username')
-@click.argument('username_file', type=click.File('w'))
-@click.argument('graph_file', type=click.File('w'))
+@click.argument('username_file', type=click.File('w', lazy=False))
+@click.argument('graph_file', type=click.File('w', lazy=False))
 @pass_config
 def graph(config, depth, max_follow, username, username_file, graph_file):
     ''' Get a twitter user's friends/follower graph. '''
@@ -145,7 +147,12 @@ def _get_graph(session, config, max_follow, user_id, username):
 
     click.secho('User "{}" has ID {}.'.format(username, user_id), fg='green')
 
-    position_el = html.select('.GridTimeline-items')[0]
+    try:
+        position_el = html.select('.GridTimeline-items')[0]
+    except IndexError:
+        click.secho('Not able to get friends for {}'.format(username))
+        return users, graph
+
     min_position = position_el['data-min-position']
 
     click.secho('First page min position: {}'.format(min_position))
@@ -203,7 +210,13 @@ def _get_graph(session, config, max_follow, user_id, username):
         click.secho('Not able to fetch friends: ()'.format(response.status_code))
 
     html = bs4.BeautifulSoup(response.text, 'html.parser')
-    position_el = html.select('.GridTimeline-items')[0]
+
+    try:
+        position_el = html.select('.GridTimeline-items')[0]
+    except IndexError:
+        click.secho('Not able to get followers for {}'.format(username))
+        return users, graph
+
     min_position = position_el['data-min-position']
 
     click.secho('First page min position: {}'.format(min_position))

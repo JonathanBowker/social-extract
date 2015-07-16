@@ -97,8 +97,8 @@ def info(config, user_id):
               default=100,
               help='Maximum number of followers or followees to traverse per user.')
 @click.argument('user_id')
-@click.argument('username_file', type=click.File('w'))
-@click.argument('graph_file', type=click.File('w'))
+@click.argument('username_file', type=click.File('w', lazy=False))
+@click.argument('graph_file', type=click.File('w', lazy=False))
 @pass_config
 def graph(config, user_id, depth, max_follow, username_file, graph_file):
     '''
