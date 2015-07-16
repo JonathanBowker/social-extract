@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from collections import defaultdict
+import functools
 import json
 import os
 import pickle
@@ -11,7 +12,7 @@ import click
 import requests
 
 sys.path.append(os.path.dirname(__file__))
-from util import write_graph, write_users
+from util import get_graph, write_graph, write_users
 
 
 TWITTER_URL = 'https://twitter.com/'
@@ -56,22 +57,37 @@ def cli(config, user, password, url, session):
 
 
 @cli.command()
+@click.option('--depth',
+              type=float,
+              default=1,
+              help='Maximum number of hops from the seed user.')
+@click.option('--max-follow',
+              default=100,
+              help='Maximum number of followers or followees to traverse per user.')
 @click.argument('username')
 @click.argument('username_file', type=click.File('w'))
 @click.argument('graph_file', type=click.File('w'))
 @pass_config
-def graph(config, username, username_file, graph_file):
+def graph(config, depth, max_follow, username, username_file, graph_file):
     ''' Get a twitter user's friends/follower graph. '''
 
     session = _login_twitter(config)
-    users = dict()
-    graph = defaultdict(set)
 
-    try:
-        _get_friends(session, config, username, users, graph)
-        _get_followers(session, config, username, users, graph)
-    except KeyboardInterrupt:
-        click.secho('Received interrupt... saving results', fg='yellow')
+    # Get user ID.
+    home_url = '{}/{}'.format(config.twitter_url, username)
+    response = session.get(home_url)
+
+    if response.status_code != 200:
+        raise click.ClickException('Not able to get home page for {}. ({})'
+                                   .format(username, response.status_code))
+
+    html = bs4.BeautifulSoup(response.text, 'html.parser')
+    profile_el = html.select('.ProfileNav-item--userActions .user-actions')[0]
+    user_id = profile_el['data-user-id']
+
+    # Get graph.
+    node_fn = functools.partial(_get_graph, session, config, max_follow)
+    users, graph = get_graph(node_fn, {user_id: username}, depth)
 
     write_users(users, username_file)
     write_graph(graph, graph_file)
@@ -79,12 +95,40 @@ def graph(config, username, username_file, graph_file):
     click.secho('Finished: {} nodes'.format(len(users)))
 
 
-def _get_friends(session, config, username, users, graph):
-    '''
-    Fetch friends (a.k.a. "following").
+@cli.command('id')
+@click.argument('username')
+@pass_config
+def id_(config, username):
+    ''' Get a twitter user ID for USERNAME. '''
 
-    The `users` and `graph` arguments are updated with the results.
+    session = _login_twitter(config)
+
+    home_url = '{}/{}'.format(config.twitter_url, username)
+    response = session.get(home_url)
+
+    if response.status_code != 200:
+        raise click.ClickException('Not able to get home page for {}. ({})'
+                                   .format(username, response.status_code))
+
+    html = bs4.BeautifulSoup(response.text, 'html.parser')
+    profile_el = html.select('.ProfileNav-item--userActions .user-actions')[0]
+    user_id = profile_el['data-user-id']
+
+    click.secho('{} has ID {}'.format(username, user_id))
+
+
+def _get_graph(session, config, max_follow, user_id, username):
     '''
+    Fetch friends (a.k.a. "following") and followers.
+
+    Returns a tuple:
+
+        0. dictionary mapping ID to username
+        1. dictionary mapping each ID to its `set` of followers
+    '''
+
+    users = dict()
+    graph = defaultdict(set)
 
     # Fetch first page.
     following_url = '{}/{}/following'.format(config.twitter_url, username)
@@ -99,7 +143,7 @@ def _get_friends(session, config, username, users, graph):
     user_el = html.select('.ProfileNav-item--userActions')[0]
     user_id = user_el.select('.user-actions')[0]['data-user-id']
 
-    click.secho('User "{}" has ID {}.'.format(username, user_id))
+    click.secho('User "{}" has ID {}.'.format(username, user_id), fg='green')
 
     position_el = html.select('.GridTimeline-items')[0]
     min_position = position_el['data-min-position']
@@ -107,6 +151,8 @@ def _get_friends(session, config, username, users, graph):
     click.secho('First page min position: {}'.format(min_position))
 
     profile_els = html.select('.ProfileCard-content')
+    friends = 0
+
     for profile_el in profile_els:
         profile = profile_el.select('.user-actions')[0]
         following_id = profile['data-user-id']
@@ -114,6 +160,7 @@ def _get_friends(session, config, username, users, graph):
 
         users[following_id] = following_name
         graph[user_id].add(following_id)
+        friends += 1
 
     # Fetch remaining pages.
     following_page_url = '{}/{}/following/users'.format(config.twitter_url, username)
@@ -137,19 +184,15 @@ def _get_friends(session, config, username, users, graph):
 
             users[following_id] = following_name
             graph[user_id].add(following_id)
+            friends += 1
+
+        if friends >= max_follow:
+            break
 
         if body['has_more_items']:
             params['max_position'] = body['min_position']
         else:
             break
-
-
-def _get_followers(session, config, username, users, graph):
-    '''
-    Fetch followers.
-
-    The `users` and `graph` arguments are updated with the results.
-    '''
 
     # Fetch first page.
     following_url = '{}/{}/followers'.format(config.twitter_url, username)
@@ -160,18 +203,14 @@ def _get_followers(session, config, username, users, graph):
         click.secho('Not able to fetch friends: ()'.format(response.status_code))
 
     html = bs4.BeautifulSoup(response.text, 'html.parser')
-
-    user_el = html.select('.ProfileNav-item--userActions')[0]
-    user_id = user_el.select('.user-actions')[0]['data-user-id']
-
-    click.secho('User "{}" has ID {}.'.format(username, user_id))
-
     position_el = html.select('.GridTimeline-items')[0]
     min_position = position_el['data-min-position']
 
     click.secho('First page min position: {}'.format(min_position))
 
     profile_els = html.select('.ProfileCard-content')
+    followers = 0
+
     for profile_el in profile_els:
         profile = profile_el.select('.user-actions')[0]
         follower_id = profile['data-user-id']
@@ -179,6 +218,7 @@ def _get_followers(session, config, username, users, graph):
 
         users[follower_id] = follower_name
         graph[follower_id].add(user_id)
+        followers += 1
 
     # Fetch remaining pages.
     following_page_url = '{}/{}/followers/users'.format(config.twitter_url, username)
@@ -202,11 +242,17 @@ def _get_followers(session, config, username, users, graph):
 
             users[follower_id] = follower_name
             graph[follower_id].add(user_id)
+            followers += 1
+
+        if followers >= max_follow:
+            break
 
         if body['has_more_items']:
             params['max_position'] = body['min_position']
         else:
             break
+
+    return users, graph
 
 
 def _login_twitter(config):

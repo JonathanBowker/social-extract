@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 
 from collections import defaultdict
+import functools
 from hashlib import sha256
 import hmac
 import json
 import os
+import sys
 import time
 
 import click
 import requests
 
 sys.path.append(os.path.dirname(__file__))
-from util import write_graph, write_users
+from util import get_graph, write_graph, write_users
 
 
 API_URL = 'https://api.instagram.com/v1'
@@ -87,8 +89,13 @@ def info(config, user_id):
 
 
 @cli.command()
-@click.option('--depth', default=1, help='Maximum number of hops from the seed user.')
-@click.option('--max-follow', default=100, help='Maximum number of followers or followees to traverse per user.')
+@click.option('--depth',
+              type=float,
+              default=1,
+              help='Maximum number of hops from the seed user.')
+@click.option('--max-follow',
+              default=100,
+              help='Maximum number of followers or followees to traverse per user.')
 @click.argument('user_id')
 @click.argument('username_file', type=click.File('w'))
 @click.argument('graph_file', type=click.File('w'))
@@ -102,18 +109,27 @@ def graph(config, user_id, depth, max_follow, username_file, graph_file):
     For each user, fetch only --max-follow followers and followees.
     '''
 
-    graph = defaultdict(set)
-    user_map = dict()
+    # Get username for this user_id.
+    endpoint = '/users/{}'.format(user_id)
+    response = _get_instagram(config, endpoint)
 
-    try:
-        _get_graph(config, graph, user_map, [user_id], depth, max_follow)
-    except KeyboardInterrupt:
-        click.secho('Received interrupt... saving results', fg='yellow')
+    if response.status_code != 200:
+        raise click.ClickException(
+            'Unable to fetch user information: {} {}'
+            .format(response.status_code, response.payload['meta']['error_message'])
+        )
 
-    write_users(user_map, username_file)
+    user_info = json.loads(response.text)
+    username = user_info['data']['username']
+
+    # Get graph.
+    node_fn = functools.partial(_get_graph, config, max_follow)
+    users, graph = get_graph(node_fn, {user_id: username}, depth)
+
+    write_users(users, username_file)
     write_graph(graph, graph_file)
 
-    click.secho('Finished: {} nodes'.format(len(user_map)))
+    click.secho('Finished: {} nodes'.format(len(users)))
 
 
 def _get_instagram(config, endpoint, params={}):
@@ -152,57 +168,49 @@ def _get_instagram(config, endpoint, params={}):
     return response
 
 
-def _get_graph(config, graph, user_map, user_ids, depth, max_follow):
+def _get_graph(config, max_follow, user_id, user_name):
     ''' Helper function for getting social graph. '''
 
-    next_hop = set()
+    users = dict()
+    graph = defaultdict(set)
 
-    for user_id in user_ids:
-        endpoint = '/users/{}/follows'.format(user_id)
-        response = _get_instagram(config, endpoint, {'count': max_follow})
+    # Get follows.
+    endpoint = '/users/{}/follows'.format(user_id)
+    response = _get_instagram(config, endpoint, {'count': max_follow})
 
-        if response.status_code != 200:
-            warn = 'Warning: unable to fetch follows: {} {}'.format(
-                response.status_code,
-                response.payload['meta']['error_message']
-            )
-            click.secho(warn, fg='yellow')
-            continue
-
+    if response.status_code == 200:
         for user in response.payload['data']:
             following_id = user['id']
             following_name = user['username']
 
-            user_map[following_id] = following_name
+            users[following_id] = following_name
             graph[user_id].add(following_id)
+    else:
+        warn = 'Warning: unable to fetch follows: {} {}'.format(
+            response.status_code,
+            response.payload['meta']['error_message']
+        )
+        click.secho(warn, fg='yellow')
 
-            if following_id not in graph:
-                next_hop.add(following_id)
+    # Get followers.
+    endpoint = '/users/{}/followed-by'.format(user_id)
+    response = _get_instagram(config, endpoint, {'count': max_follow})
 
-        endpoint = '/users/{}/followed-by'.format(user_id)
-        response = _get_instagram(config, endpoint, {'count': max_follow})
-
-        if response.status_code != 200:
-            warn = 'Warning: unable to fetch followed-by: {} {}'.format(
-                response.status_code,
-                response.payload['meta']['error_message']
-            )
-            click.secho(warn, fg='yellow')
-
+    if response.status_code == 200:
         for user in response.payload['data']:
             followed_id = user['id']
             followed_name = user['username']
 
-            user_map[followed_id] = followed_name
+            users[followed_id] = followed_name
             graph[followed_id].add(user_id)
+    else:
+        warn = 'Warning: unable to fetch followed-by: {} {}'.format(
+            response.status_code,
+            response.payload['meta']['error_message']
+        )
+        click.secho(warn, fg='yellow')
 
-            if followed_id not in graph:
-                next_hop.add(followed_id)
-
-    if depth > 1:
-        msg = 'Finished depth={}, moving on to depth={}'.format(depth, depth-1)
-        click.secho(msg, fg='green')
-        _get_graph(config, graph, user_map, list(next_hop), depth-1, max_follow)
+    return users, graph
 
 
 if __name__ == '__main__':
