@@ -132,7 +132,7 @@ def _get_graph(session, config, max_follow, user_id, username):
     users = dict()
     graph = defaultdict(set)
 
-    # Fetch first page.
+    # Fetch first page of friends.
     following_url = '{}/{}/following'.format(config.twitter_url, username)
     click.echo('Getting {}'.format(following_url))
     response = session.get(following_url)
@@ -169,7 +169,7 @@ def _get_graph(session, config, max_follow, user_id, username):
         graph[user_id].add(following_id)
         friends += 1
 
-    # Fetch remaining pages.
+    # Fetch remaining pages of friends.
     following_page_url = '{}/{}/following/users'.format(config.twitter_url, username)
 
     params = {
@@ -182,6 +182,12 @@ def _get_graph(session, config, max_follow, user_id, username):
         click.echo('Getting {} with max position {}'
                    .format(following_page_url, params['max_position']))
         response = session.get(following_page_url, params=params)
+
+        if response.status_code != 200:
+            click.secho('Failed to fetch {} (error {})'
+                        .format(response.request.url, response.status_code))
+            break
+
         body = response.json()
         html = bs4.BeautifulSoup(body['items_html'], 'html.parser')
 
@@ -201,7 +207,7 @@ def _get_graph(session, config, max_follow, user_id, username):
         else:
             break
 
-    # Fetch first page.
+    # Fetch first page of followers.
     following_url = '{}/{}/followers'.format(config.twitter_url, username)
     click.echo('Getting {}'.format(following_url))
     response = session.get(following_url)
@@ -233,7 +239,7 @@ def _get_graph(session, config, max_follow, user_id, username):
         graph[follower_id].add(user_id)
         followers += 1
 
-    # Fetch remaining pages.
+    # Fetch remaining pages of followers.
     following_page_url = '{}/{}/followers/users'.format(config.twitter_url, username)
 
     params = {
@@ -246,6 +252,12 @@ def _get_graph(session, config, max_follow, user_id, username):
         click.echo('Getting {} with max position {}'
                    .format(following_page_url, params['max_position']))
         response = session.get(following_page_url, params=params)
+
+        if response.status_code != 200:
+            click.secho('Failed to fetch {} (error {})'
+                        .format(response.request.url, response.status_code))
+            break
+
         body = response.json()
         html = bs4.BeautifulSoup(body['items_html'], 'html.parser')
 

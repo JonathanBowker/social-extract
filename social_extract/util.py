@@ -37,7 +37,12 @@ def get_graph(node_fn, seeds, max_depth):
 
             # Get induced graphs for each node in the next hop and combine them.
             for node_id, node_name in next_hop.items():
-                node_users, node_graph = node_fn(node_id, node_name)
+                try:
+                    node_users, node_graph = node_fn(node_id, node_name)
+                except:
+                    print('Failed fetching graph node id={}, name={}'
+                          .format(node_id, node_name))
+                    continue
                 hop_users.update(node_users)
                 merge_graphs(node_graph, hop_graph)
 
